@@ -7,15 +7,18 @@ on:
       - releases/*
     paths-ignore:
       - '**.md'
-  pull_request_target:
+  pull_request:
     branches:
       - master
       - 'releases/*'
-      
+
+permissions:
+  id-token: write
+
 env:
-  AZURE_WEBAPP_NAME: windowscontainerwebapp  # set this to your application's name
-  CONTAINER_REGISTRY: l2testscontainerregistry.azurecr.io  # set secret with Container Registry URL, example : xyz.azurecr.io 
-  
+  AZURE_WEBAPP_NAME: wincontainerswebapp  # set this to your application's name
+  CONTAINER_REGISTRY: webdeployprtestscontainerregistry.azurecr.io # set secret with Container Registry URL, example : xyz.azurecr.io
+
 jobs:
   build-and-deploy:
     environment: automation test
@@ -23,40 +26,48 @@ jobs:
     runs-on: windows-latest
     steps:
     # checkout the repo
-    - name: 'Checkout Github Action' 
+    - name: 'Checkout Github Action'
       uses: actions/checkout@master
       with:
         repository: GH-ACE/python_container_App
         ref: main
         path: 'python_container_App'
-      
+
     - name: Azure authentication
-      uses: azure/login@v1
+      uses: azure/login@v2
       with:
-        creds: ${{ secrets.AZURE_WEBAPP_SPN }}
-      
-    - uses: azure/docker-login@v1
+        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+    - name: Logout from Azure Container Registry
+      run: |
+        docker logout env.CONTAINER_REGISTRY
+
+    - name: Login to Azure Container Registry
+      uses: azure/docker-login@v1
       with:
-        login-server: l2testscontainerregistry.azurecr.io
-        username: ${{ secrets.L2TEST_ACR_USERNAME }}
-        password: ${{ secrets.L2TEST_ACR_PASSWORD }}
-    
-    - run: |
+        login-server: ${{ env.CONTAINER_REGISTRY }}
+        username: ${{ secrets.WEBDEPLOY_TEST_ACR_USERNAME }}
+        password: ${{ secrets.WEBDEPLOY_TEST_ACR_PASSWORD }}
+
+    - name: Pull and tag an image and push it to ACR
+      run: |
         pwd
         cd python_container_App
         docker pull mcr.microsoft.com/azure-app-service/windows/canary:5.0-nanoserver
         docker tag mcr.microsoft.com/azure-app-service/windows/canary:5.0-nanoserver ${{ env.CONTAINER_REGISTRY }}/containerwebapp/canaryreplica:latest
         docker push ${{ env.CONTAINER_REGISTRY }}/containerwebapp/canaryreplica:latest
-        
+
     - name: Set Web App ACR authentication
       uses: Azure/appservice-settings@v1
       with:
-        app-name: ${{ env.AZURE_WEBAPP_NAME }} 
+        app-name: ${{ env.AZURE_WEBAPP_NAME }}
         app-settings-json: |
           [
               {
                   "name": "DOCKER_REGISTRY_SERVER_PASSWORD",
-                  "value": "${{ secrets.L2TEST_ACR_PASSWORD }}",
+                  "value": "${{ secrets.WEBDEPLOY_TEST_ACR_PASSWORD }}",
                   "slotSetting": false
               },
               {
@@ -66,26 +77,30 @@ jobs:
               },
               {
                   "name": "DOCKER_REGISTRY_SERVER_USERNAME",
-                  "value": "${{ secrets.L2TEST_ACR_USERNAME  }}",
+                  "value": "${{ secrets.WEBDEPLOY_TEST_ACR_USERNAME  }}",
                   "slotSetting": false
               }
-          ]  
-    - uses: actions/checkout@v2
-      name: Checkout from PR branch
-      with: 
+          ]
+
+    - name: Checkout from PR branch
+      uses: actions/checkout@v2
+      with:
         repository: ${{ github.event.pull_request.head.repo.full_name }}
         path: 'webapps-deploy'
-        ref: ${{ github.event.pull_request.head.ref }}
-        
+        ref: ${{ github.event.pull_request.head.sha }}
+
     - name: Installing dependencies and building latest changes in action
       run: |
         cd webapps-deploy
-        npm install
-        npm run build
-        
+        if (-NOT(TEST-PATH node_modules))
+        {
+          npm install
+          npm run build
+        }
+
     - name: 'Deploy to Azure WebApp'
       uses: ./webapps-deploy/
-      with: 
+      with:
         app-name: ${{ env.AZURE_WEBAPP_NAME }} # Replace with your app name
         publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
         images: ${{ env.CONTAINER_REGISTRY }}/containerwebapp/canaryreplica:latest

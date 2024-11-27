@@ -14,7 +14,8 @@ export const appKindMap = new Map([
     [ 'app', WebAppKind.Windows ],
     [ 'app,linux', WebAppKind.Linux ],
     [ 'app,container,windows', WebAppKind.WindowsContainer ],
-    [ 'app,linux,container', WebAppKind.LinuxContainer ]
+    [ 'app,linux,container', WebAppKind.LinuxContainer ],
+    [ 'api', WebAppKind.Windows ],
 ]);
 
 export class ActionParameters {
@@ -35,6 +36,12 @@ export class ActionParameters {
     private _isLinux: boolean;
     private _commitMessage: string;
 
+    // Used only for OneDeploy
+    private _type: string;
+    private _targetPath: string;
+    private _clean: string;
+    private _restart: string;
+
     private constructor(endpoint: IAuthorizer) {
         this._publishProfileContent = core.getInput('publish-profile');
         this._appName = core.getInput('app-name');
@@ -43,15 +50,24 @@ export class ActionParameters {
         this._images = core.getInput('images');
         this._multiContainerConfigFile = core.getInput('configuration-file');
         this._startupCommand = core.getInput('startup-command');
-        this._commitMessage = github.context.eventName === 'push'? github.context.payload.head_commit.message: "";
-        this._endpoint = endpoint;    
+        this._resourceGroupName = core.getInput('resource-group-name');
+        /**
+         * Trimming the commit message because it is used as a param in uri of deployment api. And sometimes, it exceeds the max length of http URI.
+         */
+        this._commitMessage = github.context.eventName === 'push' ? github.context.payload.head_commit.message.slice(0, 1000) : "";
+        this._endpoint = endpoint;
+
+        // Used only for OneDeploy
+        this._type = core.getInput('type');
+        this._targetPath = core.getInput('target-path');
+        this._clean = core.getInput('clean');
+        this._restart = core.getInput('restart');
     }
 
     public static getActionParams(endpoint?: IAuthorizer) {
         if (!this.actionparams) {
             this.actionparams = new ActionParameters(!!endpoint ? endpoint : null);
         }
-        
         return this.actionparams;
     }
     public get appName() {
@@ -139,4 +155,23 @@ export class ActionParameters {
         return this._multiContainerConfigFile;
     }
 
+    public get type() {
+        return this._type;
+    }
+
+    public set type(type:string) {
+        this._type = type;
+    }
+
+    public get targetPath() {
+        return this._targetPath;
+    }
+
+    public get clean() {
+        return this._clean;
+    }
+
+    public get restart() {
+        return this._restart;
+    }
 }
